@@ -105,6 +105,9 @@ class RetconService extends Component
             return TemplateHelper::raw($html);
         }
 
+        $inlineWidth = isset($transform['inlineWidth']) && $transform['inlineWidth'] == true;
+        $inlineHeight = isset($transform['inlineHeight']) && $transform['inlineHeight'] == true;
+
         $transform = RetconHelper::getImageTransform($transform);
 
         if (!$transform) {
@@ -124,11 +127,11 @@ class RetconService extends Component
 
             $node->setAttribute('src', $transformedImage->url);
 
-            if ($node->getAttribute('width')) {
+            if ($node->getAttribute('width') || $inlineWidth) {
                 $node->setAttribute('width', $transformedImage->width);
             }
 
-            if ($node->getAttribute('height')) {
+            if ($node->getAttribute('height') || $inlineHeight) {
                 $node->setAttribute('height', $transformedImage->height);
             }
 
@@ -172,13 +175,17 @@ class RetconService extends Component
         }
 
         $transforms = \array_reduce($transforms, function ($carry, $transform) {
+            $attr = isset($transform['attr']) ? $transform['attr'] : 'w';
             $transform = RetconHelper::getImageTransform($transform);
             if ($transform) {
-                $carry[] = $transform;
+                $carry[] = array(
+                    'transform' => $transform, 
+                    'attr' => $attr
+                );
             }
             return $carry;
         }, []);
-
+        
         if (empty($transforms)) {
             return $html;
         }
@@ -194,11 +201,10 @@ class RetconService extends Component
             if (!$src = $node->getAttribute('src')) {
                 continue;
             }
-
             // Get transformed images
             $transformedImages = \array_reduce($transforms, function ($carry, $transform) use ($src, $transformDefaults, $configOverrides) {
-                if ($transformedImage = RetconHelper::getTransformedImage($src, $transform, $transformDefaults, $configOverrides)) {
-                    $carry[] = $transformedImage;
+                if ($transformedImage = RetconHelper::getTransformedImage($src, $transform['transform'], $transformDefaults, $configOverrides)) {
+                    $carry[] = array('image'=>$transformedImage, 'attr'=>$transform['attr']);
                 }
                 return $carry;
             }, []);

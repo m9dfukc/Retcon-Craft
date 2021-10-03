@@ -72,8 +72,9 @@ class RetconHelper
         /** @var Imager|ImagerX|PluginInterface $imagerPlugin */
         $imagerPlugin = RetconHelper::getImagerPlugin();
         $useImager = !!$imagerPlugin;
-
-        if (\is_string($transform)) {
+         if (is_string($transform) || isset($transform['transform'])) {
+            // Unfold transform
+            $transform = isset($transform['transform']) ? $transform['transform'] : $transform;
 
             // Named transform
             $transformName = $transform;
@@ -107,6 +108,12 @@ class RetconHelper
             return $transform;
         }
 
+        $attr = $transform['attr'] ?? null;
+        $inlineWidth = $transform['inlineWidth'] ?? null;
+        $inlineHeight = $transform['inlineHeight'] ?? null;
+        unset($transform['attr']);
+        unset($transform['inlineWidth']);
+        unset($transform['inlineHeight']);
         return Craft::$app->getAssetTransforms()->normalizeTransform($transform);
     }
 
@@ -138,11 +145,52 @@ class RetconHelper
         $imageUrl = Craft::$app->getElements()->parseRefs($src);
         $imageUrlInfo = \parse_url($imageUrl);
 
+        // Get basepaths and URLs
+        $basePath = StringHelper::ensureRight($settings->baseTransformPath, '/');
+        $baseUrl = StringHelper::ensureRight($settings->baseTransformUrl, '/');
+        $siteUrl = StringHelper::ensureRight(UrlHelper::siteUrl(), '/');
+        $docImagePath = self::fixSlashes($basePath . $imageUrlInfo['path']);
+        try {
+          if ($image = Craft::$app->images->loadImage($docImagePath)) {
+              preg_match_all('/\d+(?=\s*%)/', $transform->width, $matches);
+              if (isset($matches[0][0])) {
+                  $percentage = ((int) $matches[0][0]) / 100;
+                  $size = floor($percentage * $image->getWidth()) ;
+                  $transform->width = $size;
+                  $transformWidth = $transform->height;
+              }
+              preg_match_all('/\d+(?=\s*%)/', $transform->height, $matches);
+              if (isset($matches[0][0])) {
+                  $percentage = ((int) $matches[0][0]) / 100;
+                  $size = floor($percentage * $image->getHeight()) ;
+                  $transform->height = $size;
+                  $transformHeight = $transform->height;
+              }
+
+              $transformMode = $transform->mode ?? 'crop';
+              $transformPosition = $transform->position ?? 'center-center';
+              $transformQuality = $transform->quality ?? Craft::$app->getConfig()->getGeneral()->defaultImageQuality ?? 90;
+              $transformFormat = $transform->format ?? null;
+
+              $transformFilenameAttributes = array(
+                  $transform->width . 'x' . $transform->height,
+                  $transformMode,
+                  $transformPosition,
+                  $transformQuality
+              );
+              $transform->handle = implode('_', $transformFilenameAttributes);
+          }
+        } catch (\Exception $e) { return;
+        }
+
         // If we can use Imager, we need to do minimal work
         /** @var Imager $imagerPlugin */
         $imagerPlugin = self::getImagerPlugin();
         if ($imagerPlugin) {
-            return $imagerPlugin->imager->transformImage($imageUrl, $transform, $imagerTransformDefaults, $imagerConfigOverrides);
+            try {
+                return $imagerPlugin->imager->transformImage($imageUrl, $transform, $imagerTransformDefaults, $imagerConfigOverrides);
+            } catch (\Exception $e) { // silcene is golden
+            }
         }
 
         $transform = (object)$transform;
@@ -171,11 +219,6 @@ class RetconHelper
             ];
             $transformHandle = \implode('_', $transformFilenameAttributes);
         }
-
-        // Get basepaths and URLs
-        $basePath = StringHelper::ensureRight($settings->baseTransformPath, '/');
-        $baseUrl = StringHelper::ensureRight($settings->baseTransformUrl, '/');
-        $siteUrl = StringHelper::ensureRight(UrlHelper::siteUrl(), '/');
 
         $host = \parse_url($siteUrl, PHP_URL_HOST);
 
@@ -264,7 +307,8 @@ class RetconHelper
     {
         $sizes = [];
         foreach ($images as $image) {
-            $sizes[] = $image->url . ' ' . $image->width . $descriptor;
+            $attr = $image['attr'] == 'w' ? $image['image']->width . 'w' : $image['attr'];
+            $sizes[] = $image['image']->url . ' ' . $attr;
         }
         return \implode(', ', $sizes);
     }
