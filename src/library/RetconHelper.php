@@ -437,7 +437,7 @@ class RetconHelper
             return null;
         }
         $refSegments = \explode(':', \strtr($ref, ['{' => '', '}' => '']));
-        if (\count($refSegments) !== 3 || !($id = (int)$refSegments[1] ?? null)) {
+        if (\count($refSegments) <= 3 || !($id = (int)$refSegments[1] ?? null)) {
             return null;
         }
         return $id;
